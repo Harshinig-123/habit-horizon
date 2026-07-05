@@ -124,3 +124,12 @@ Navigate to **http://localhost:5173**
 - **AI Task Planner** — paste tasks → set deadline → AI generates structured plan → push to planner
 - **Privacy Guard** — all messages PII-stripped on the server before reaching the AI model
 - **Offline fallback** — frontend falls back to localStorage if backend is down
+
+---
+
+## Troubleshooting
+
+### `Plan generation error: fetch failed` (on Windows/WSL)
+If you run the backend on Windows and external API calls (such as Groq or Claude) fail with a generic `fetch failed` error while curl or browser requests succeed:
+* This is typically caused by Node.js prioritizing IPv6 DNS records (AAAA) over IPv4 when there is no active IPv6 route to the internet.
+* **Solution**: The backend entry point [server.ts](file:///c:/Users/sandh/OneDrive/Desktop/Projects/habit-horizon/backend/src/server.ts) programmatically addresses this by calling `dns.setDefaultResultOrder('ipv4first')` at startup. Ensure this import remains at the very top of your entry file.

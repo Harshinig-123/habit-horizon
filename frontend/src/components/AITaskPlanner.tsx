@@ -3,7 +3,7 @@ import { Wand2, Plus, CalendarCheck, Loader2, ChevronDown, ChevronUp } from 'luc
 import type { Archetype } from '../App';
 import { api } from '../api';
 
-interface PlannedTask { day: string; time?: string; task: string; priority: 'high' | 'medium' | 'low'; scope: 'daily' | 'weekly' | 'monthly'; }
+interface PlannedTask { day: string; date?: string; time?: string; task: string; priority: 'high' | 'medium' | 'low'; scope: 'daily' | 'weekly' | 'monthly'; }
 
 const PC = {
   high:   { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5' },
@@ -86,8 +86,33 @@ export default function AITaskPlanner({ archetype, userId }: { archetype: Archet
 
   const pushToPlanner = async () => {
     if (!plan) return;
+
+    const DAY_MAP: Record<string, number> = {
+      monday: 0, mon: 0,
+      tuesday: 1, tue: 1,
+      wednesday: 2, wed: 2,
+      thursday: 3, thu: 3,
+      friday: 4, fri: 4,
+      saturday: 5, sat: 5,
+      sunday: 6, sun: 6
+    };
+
     for (const p of plan) {
-      const task = { title: `${p.task}${p.time ? ` (${p.time})` : ''}`, done: false, archetype, ...(p.time ? { time: p.time } : {}) };
+      const task: any = {
+        title: `${p.task}${p.time ? ` (${p.time})` : ''}`,
+        done: false,
+        archetype,
+        ...(p.time ? { time: p.time } : {})
+      };
+
+      if (p.scope === 'weekly' && p.day) {
+        const dayLower = String(p.day).toLowerCase();
+        task.day = DAY_MAP[dayLower] !== undefined ? DAY_MAP[dayLower] : 0;
+      } else if (p.scope === 'monthly') {
+        const dateVal = p.date || p.day;
+        if (dateVal) task.date = dateVal;
+      }
+
       try {
         await api.addTask(userId, archetype, p.scope, task);
       } catch {

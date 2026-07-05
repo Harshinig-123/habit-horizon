@@ -15,7 +15,7 @@ const SYSTEM_PROMPTS: Record<Archetype, string> = {
     'You are a helpful Habit Horizon assistant for an entrepreneur. Help with sprint planning, investor readiness, team tasks, growth metrics, and founder well-being. Be energetic and action-oriented.',
 };
 
-async function callGroq(messages: { role: string; content: string }[], systemPrompt?: string): Promise<string> {
+async function callGroq(messages: { role: string; content: string }[], systemPrompt?: string, maxTokens: number = 2048): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY not configured in .env');
 
@@ -30,7 +30,7 @@ async function callGroq(messages: { role: string; content: string }[], systemPro
   for (const model of candidates) {
     const body: any = {
       model,
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       messages: systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...messages]
         : messages,
@@ -236,9 +236,32 @@ export async function generatePlan(req: Request, res: Response) {
   if (!tasks) return res.status(400).json({ error: 'tasks are required' });
 
   let planningTimeRules = '';
-  if (timeframe === '1 day' && deadline && localDate && localTime) {
-    if (deadline === localDate) {
-      planningTimeRules = `\n- Since the timeframe is "1 day" and the deadline is today (${deadline}), you MUST only schedule tasks for the remaining time of the day starting from the present time: ${localTime}. Do not schedule tasks in the past.`;
+  let todayInfo = '';
+  if (localDate) {
+    const todayName = new Date(localDate).toLocaleDateString('en-US', { weekday: 'long' });
+    todayInfo = `Today is ${todayName}, ${localDate}.`;
+  }
+
+  if (deadline && localDate) {
+    const start = new Date(localDate);
+    const end = new Date(deadline);
+    if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+      const diffTime = end.getTime() - start.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (timeframe === '1 day' && localTime && deadline === localDate) {
+        planningTimeRules = `\n- Since the timeframe is "1 day" and the deadline is today (${deadline}), you MUST only schedule tasks for the remaining time of the day starting from the present time: ${localTime}. Do not schedule tasks in the past.`;
+      } else if (timeframe === '1 week' && diffDays >= 0 && diffDays < 7) {
+        const allowedDays: string[] = [];
+        const current = new Date(start);
+        while (current <= end) {
+          allowedDays.push(current.toLocaleDateString('en-US', { weekday: 'long' }));
+          current.setDate(current.getDate() + 1);
+        }
+        planningTimeRules = `\n- Since the timeframe is "1 week" but the optional deadline is set to ${deadline} (which is in ${diffDays} days, less than 1 week away), you MUST plan according to the deadline date. For "weekly" scope, you can ONLY use the following day names: ${allowedDays.join(', ')}. Do not schedule any tasks on Saturday, Sunday, or other days beyond the deadline.`;
+      } else if (timeframe === '1 month' && diffDays >= 0 && diffDays < 30) {
+        planningTimeRules = `\n- Since the timeframe is "1 month" but the optional deadline is set to ${deadline} (which is in ${diffDays} days, less than 1 month away), you MUST plan according to the deadline date and only schedule tasks to be completed on or before the deadline date (${deadline}). Do not schedule any tasks after the deadline date.`;
+      }
     }
   }
 
@@ -247,13 +270,15 @@ export async function generatePlan(req: Request, res: Response) {
 Their task list:
 ${tasks}
 
+${todayInfo}
 Deadline: ${deadline || 'not specified'}
 Timeframe: ${timeframe}
 
-Generate a structured, realistic plan. Return ONLY valid JSON (no markdown, no explanation, no extra text) as an array:
-[
-  { "day": "Monday", "time": "09:00", "task": "task description", "priority": "high", "scope": "daily" }
-]
+Generate a structured, realistic plan. Return ONLY valid JSON (no markdown, no explanation, no extra text) as an array of objects.
+Each object must follow this structure depending on its scope:
+- For "daily" scope: { "scope": "daily", "time": "HH:MM", "task": "description", "priority": "high/medium/low" }
+- For "weekly" scope: { "scope": "weekly", "day": "Monday/Tuesday/etc.", "task": "description", "priority": "high/medium/low" }
+- For "monthly" scope: { "scope": "monthly", "date": "YYYY-MM-DD", "task": "description", "priority": "high/medium/low" }
 
 Rules:
 - "priority" must be exactly "high", "medium", or "low"
@@ -263,7 +288,7 @@ Rules:
 - Return ONLY the JSON array, nothing else`;
 
   try {
-    const raw = await callGroq([{ role: 'user', content: prompt }]);
+    const raw = await callGroq([{ role: 'user', content: prompt }], undefined, 4096);
     const clean = raw.replace(/```json|```/g, '').trim();
     // Find the JSON array in the response in case model adds text
     const match = clean.match(/\[[\s\S]*\]/);

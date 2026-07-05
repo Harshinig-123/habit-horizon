@@ -31,7 +31,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const storedAuth = localStorage.getItem('ca_auth');
+    const storedAuth = sessionStorage.getItem('ca_auth');
     if (storedAuth) {
       try {
         const auth = JSON.parse(storedAuth) as { userId: string; username: string; userName: string; archetype: Archetype };
@@ -44,11 +44,11 @@ export default function App() {
           return;
         }
       } catch {
-        localStorage.removeItem('ca_auth');
+        sessionStorage.removeItem('ca_auth');
       }
     }
 
-    const saved = localStorage.getItem('ca_profile');
+    const saved = sessionStorage.getItem('ca_profile');
     if (saved) {
       try {
         const { archetype: a, userName: n } = JSON.parse(saved);
@@ -56,10 +56,10 @@ export default function App() {
           setArchetype(a);
           setUserName(n || '');
           setSelectedArchetype(a);
-          setUserId(localStorage.getItem('ca_user_id'));
+          setUserId(sessionStorage.getItem('ca_user_id'));
         }
       } catch {
-        localStorage.removeItem('ca_profile');
+        sessionStorage.removeItem('ca_profile');
       }
     }
   }, []);
@@ -71,7 +71,7 @@ export default function App() {
         setArchetype(p.archetype);
         setUserName(p.userName || '');
         setSelectedArchetype(p.archetype);
-        localStorage.setItem('ca_profile', JSON.stringify({ archetype: p.archetype, userName: p.userName || '' }));
+        sessionStorage.setItem('ca_profile', JSON.stringify({ archetype: p.archetype, userName: p.userName || '' }));
       }
     }).catch(() => {
       // Backend offline — keep existing local auth/profile state
@@ -93,9 +93,9 @@ export default function App() {
     setArchetype(data.archetype);
     setSelectedArchetype(data.archetype);
     setAuthError('');
-    localStorage.setItem('ca_auth', JSON.stringify(data));
-    localStorage.setItem('ca_user_id', data.userId);
-    localStorage.setItem('ca_profile', JSON.stringify({ archetype: data.archetype, userName: data.userName }));
+    sessionStorage.setItem('ca_auth', JSON.stringify(data));
+    sessionStorage.setItem('ca_user_id', data.userId);
+    sessionStorage.setItem('ca_profile', JSON.stringify({ archetype: data.archetype, userName: data.userName }));
   };
 
   const handleLogin = async () => {
@@ -150,9 +150,9 @@ export default function App() {
 
   const handleLogout = async () => {
     if (userId) await api.resetProfile(userId).catch(() => {});
-    localStorage.removeItem('ca_profile');
-    localStorage.removeItem('ca_auth');
-    localStorage.removeItem('ca_user_id');
+    sessionStorage.removeItem('ca_profile');
+    sessionStorage.removeItem('ca_auth');
+    sessionStorage.removeItem('ca_user_id');
     setArchetype(null);
     setUserName('');
     setUsername('');
@@ -166,8 +166,17 @@ export default function App() {
   const handleArchetypeSwitch = async (a: Archetype) => {
     if (!userId) return;
     setArchetype(a);
-    localStorage.setItem('ca_profile', JSON.stringify({ archetype: a, userName }));
+    sessionStorage.setItem('ca_profile', JSON.stringify({ archetype: a, userName }));
     await api.saveProfile(userId, userName, a).catch(() => {});
+  };
+
+  const handleToggleAuthMode = (mode: AuthMode) => {
+    setAuthMode(mode);
+    setUsername('');
+    setPassword('');
+    setConfirmPassword('');
+    setDisplayName('');
+    setAuthError('');
   };
 
   /* ── ONBOARDING ── */
@@ -179,27 +188,27 @@ export default function App() {
         <p style={{ marginTop: '0.75rem' }}>Sign in or create an account to save your profile and role securely.</p>
       </div>
       <div className="auth-toggle">
-        <button className={authMode === 'login' ? 'active' : ''} onClick={() => setAuthMode('login')}>Login</button>
-        <button className={authMode === 'signup' ? 'active' : ''} onClick={() => setAuthMode('signup')}>Sign Up</button>
+        <button className={authMode === 'login' ? 'active' : ''} onClick={() => handleToggleAuthMode('login')}>Login</button>
+        <button className={authMode === 'signup' ? 'active' : ''} onClick={() => handleToggleAuthMode('signup')}>Sign Up</button>
       </div>
       <div className={`auth-card ${authMode === 'login' ? 'login-card' : 'signup-card'}`}>
         {authMode === 'signup' && (
           <div className="auth-form-grid">
             <div className="form-group">
               <label>Display name</label>
-              <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Your full name" />
+              <input className="input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Your full name" autoComplete="name" />
             </div>
             <div className="form-group">
               <label>Username</label>
-              <input className="input" value={username} onChange={e => setUsername(e.target.value)} placeholder="Pick a username" />
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} placeholder="Pick a username" autoComplete="new-username" />
             </div>
             <div className="form-group">
               <label>Password</label>
-              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a password" />
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a password" autoComplete="new-password" />
             </div>
             <div className="form-group">
               <label>Confirm password</label>
-              <input className="input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat password" />
+              <input className="input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat password" autoComplete="new-password" />
             </div>
           </div>
         )}
@@ -208,11 +217,11 @@ export default function App() {
           <div className="auth-form-grid">
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label>Username</label>
-              <input className="input" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
+              <input className="input" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" autoComplete="username" />
             </div>
             <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label>Password</label>
-              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
+              <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" />
             </div>
           </div>
         )}

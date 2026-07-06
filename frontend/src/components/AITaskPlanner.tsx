@@ -124,6 +124,7 @@ export default function AITaskPlanner({ archetype, userId }: { archetype: Archet
       }
     }
     setPushed(true);
+    window.dispatchEvent(new CustomEvent('ca_planning_updated'));
   };
 
   const PLACEHOLDERS: Record<Archetype, string> = {

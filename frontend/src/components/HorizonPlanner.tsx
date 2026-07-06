@@ -64,11 +64,18 @@ export default function HorizonPlanner({ archetype, userId }: { archetype: Arche
   const key = `ca_planning_${archetype}`; // localStorage fallback key
 
   useEffect(() => {
-    api.getPlanning(userId, archetype).then(setPlanning).catch(() => {
-      const saved = localStorage.getItem(key);
-      if (saved) setPlanning(JSON.parse(saved));
-      else setPlanning({ daily: [], weekly: [], monthly: [] });
-    });
+    const loadPlanning = () => {
+      api.getPlanning(userId, archetype).then(setPlanning).catch(() => {
+        const saved = localStorage.getItem(key);
+        if (saved) setPlanning(JSON.parse(saved));
+        else setPlanning({ daily: [], weekly: [], monthly: [] });
+      });
+    };
+
+    loadPlanning();
+
+    window.addEventListener('ca_planning_updated', loadPlanning);
+    return () => window.removeEventListener('ca_planning_updated', loadPlanning);
   }, [userId, archetype]);
 
   const save = (p: Planning) => {

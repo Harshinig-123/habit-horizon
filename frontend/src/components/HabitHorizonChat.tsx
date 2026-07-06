@@ -135,7 +135,7 @@ export default function HabitHorizonChat({ archetype, userName, userId }: { arch
             Send a message with your name, email, or phone number to see redaction in action.
           </div>
         ) : (
-          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {piiLogs.map((l, i) => (
               <div key={i} className="pii-log-entry">
                 <div style={{ marginBottom: '4px', color: 'var(--text-muted)', fontSize: '0.7rem' }}>{l.ts}</div>

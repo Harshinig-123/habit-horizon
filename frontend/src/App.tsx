@@ -149,7 +149,6 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (userId) await api.resetProfile(userId).catch(() => {});
     sessionStorage.removeItem('ca_profile');
     sessionStorage.removeItem('ca_auth');
     sessionStorage.removeItem('ca_user_id');

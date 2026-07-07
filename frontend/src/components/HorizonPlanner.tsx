@@ -170,7 +170,7 @@ export default function HorizonPlanner({ archetype, userId }: { archetype: Arche
 
       {/* ── WEEKLY VIEW ── */}
       {tab === 'weekly' && (
-        <div>
+        <div className="week-grid-wrapper">
           <div className="week-grid">
             {WEEK_DAYS.map((label, dayIdx) => {
               const d = new Date(weekStart);

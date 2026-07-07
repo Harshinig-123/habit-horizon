@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Archetype } from '../utils/pii';
+import { MongoClient, Db } from 'mongodb';
 
 export interface AuthUser {
   userId: string;
@@ -16,6 +17,27 @@ export interface AuthUser {
 const SANDBOX_DIR = path.resolve(__dirname, '../../../sandbox');
 const USERS_FILE = path.resolve(SANDBOX_DIR, 'users.json');
 
+// ── MongoDB client connection ──────────────────────────────────────────────────
+let mongoClient: MongoClient | null = null;
+let db: Db | null = null;
+
+async function getDb(): Promise<Db | null> {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) return null;
+  if (db) return db;
+
+  try {
+    mongoClient = new MongoClient(uri);
+    await mongoClient.connect();
+    db = mongoClient.db();
+    console.log('Connected to MongoDB successfully');
+    return db;
+  } catch (err) {
+    console.error('Failed to connect to MongoDB:', err);
+    return null;
+  }
+}
+
 function hashPassword(password: string, username: string) {
   return crypto
     .createHmac('sha256', 'habit_horizon_secret')
@@ -23,29 +45,69 @@ function hashPassword(password: string, username: string) {
     .digest('hex');
 }
 
-function readUsers(): AuthUser[] {
+async function readUsers(): Promise<AuthUser[]> {
+  const database = await getDb();
+  if (database) {
+    try {
+      return await database.collection<AuthUser>('users').find({}).toArray();
+    } catch (err) {
+      console.error('Failed to read users from MongoDB:', err);
+    }
+  }
   ensureDir();
   return readJson<AuthUser[]>(USERS_FILE, []);
 }
 
-function saveUsers(users: AuthUser[]): AuthUser[] {
+async function saveUsers(users: AuthUser[]): Promise<AuthUser[]> {
+  const database = await getDb();
+  if (database) {
+    try {
+      const col = database.collection<AuthUser>('users');
+      // Upsert each user in the array
+      for (const user of users) {
+        await col.replaceOne({ userId: user.userId }, user, { upsert: true });
+      }
+      // Delete users that are no longer in the list
+      const userIds = users.map(u => u.userId);
+      await col.deleteMany({ userId: { $nin: userIds } });
+      return users;
+    } catch (err) {
+      console.error('Failed to save users to MongoDB:', err);
+    }
+  }
   ensureDir();
   writeJson(USERS_FILE, users);
   return users;
 }
 
-export function findUserByUsername(username: string): AuthUser | null {
-  const users = readUsers();
+export async function findUserByUsername(username: string): Promise<AuthUser | null> {
+  const database = await getDb();
+  if (database) {
+    try {
+      return await database.collection<AuthUser>('users').findOne({ username: { $regex: new RegExp(`^${username}$`, 'i') } });
+    } catch (err) {
+      console.error('Failed to find user by username in MongoDB:', err);
+    }
+  }
+  const users = await readUsers();
   return users.find(u => u.username.toLowerCase() === username.toLowerCase()) ?? null;
 }
 
-export function getUserAccount(userId: string): AuthUser | null {
-  const users = readUsers();
+export async function getUserAccount(userId: string): Promise<AuthUser | null> {
+  const database = await getDb();
+  if (database) {
+    try {
+      return await database.collection<AuthUser>('users').findOne({ userId });
+    } catch (err) {
+      console.error('Failed to get user account in MongoDB:', err);
+    }
+  }
+  const users = await readUsers();
   return users.find(u => u.userId === userId) ?? null;
 }
 
-export function createUserAccount(username: string, password: string, displayName: string, archetype: Archetype): AuthUser {
-  if (findUserByUsername(username)) {
+export async function createUserAccount(username: string, password: string, displayName: string, archetype: Archetype): Promise<AuthUser> {
+  if (await findUserByUsername(username)) {
     throw new Error('Username already taken');
   }
 
@@ -61,19 +123,42 @@ export function createUserAccount(username: string, password: string, displayNam
     updated_at: now,
   };
 
-  const users = readUsers();
-  saveUsers([...users, user]);
+  const database = await getDb();
+  if (database) {
+    try {
+      await database.collection<AuthUser>('users').insertOne(user);
+      return user;
+    } catch (err) {
+      console.error('Failed to create user in MongoDB:', err);
+    }
+  }
+
+  const users = await readUsers();
+  await saveUsers([...users, user]);
   return user;
 }
 
-export function verifyUserCredentials(username: string, password: string): AuthUser | null {
-  const user = findUserByUsername(username);
+export async function verifyUserCredentials(username: string, password: string): Promise<AuthUser | null> {
+  const user = await findUserByUsername(username);
   if (!user) return null;
   return user.passwordHash === hashPassword(password, username) ? user : null;
 }
 
-export function updateUserProfile(userId: string, displayName: string, archetype: Archetype): AuthUser | null {
-  const users = readUsers();
+export async function updateUserProfile(userId: string, displayName: string, archetype: Archetype): Promise<AuthUser | null> {
+  const database = await getDb();
+  if (database) {
+    try {
+      const col = database.collection<AuthUser>('users');
+      await col.updateOne(
+        { userId },
+        { $set: { displayName: displayName.trim(), archetype, updated_at: new Date().toISOString() } }
+      );
+      return await col.findOne({ userId });
+    } catch (err) {
+      console.error('Failed to update user profile in MongoDB:', err);
+    }
+  }
+  const users = await readUsers();
   const idx = users.findIndex(u => u.userId === userId);
   if (idx === -1) return null;
   users[idx] = {
@@ -82,7 +167,7 @@ export function updateUserProfile(userId: string, displayName: string, archetype
     archetype,
     updated_at: new Date().toISOString(),
   };
-  saveUsers(users);
+  await saveUsers(users);
   return users[idx];
 }
 
@@ -138,15 +223,32 @@ function writeJson(filePath: string, data: unknown): void {
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 
-export function getProfile(userId: string): UserProfile | null {
+export async function getProfile(userId: string): Promise<UserProfile | null> {
+  const database = await getDb();
+  if (database) {
+    try {
+      return await database.collection<UserProfile>('profiles').findOne({ userId });
+    } catch (err) {
+      console.error('Failed to get profile from MongoDB:', err);
+    }
+  }
   ensureDir();
   const p = path.join(SANDBOX_DIR, `profile_${userId}.json`);
   return readJson<UserProfile | null>(p, null);
 }
 
-export function saveProfile(userId: string, userName: string, archetype: Archetype): UserProfile {
-  ensureDir();
+export async function saveProfile(userId: string, userName: string, archetype: Archetype): Promise<UserProfile> {
   const profile: UserProfile = { userId, userName, archetype, updated_at: new Date().toISOString() };
+  const database = await getDb();
+  if (database) {
+    try {
+      await database.collection<UserProfile>('profiles').replaceOne({ userId }, profile, { upsert: true });
+      return profile;
+    } catch (err) {
+      console.error('Failed to save profile to MongoDB:', err);
+    }
+  }
+  ensureDir();
   writeJson(path.join(SANDBOX_DIR, `profile_${userId}.json`), profile);
   return profile;
 }
@@ -159,7 +261,28 @@ const DEFAULT_HABITS: Record<Archetype, string[]> = {
   Entrepreneur: ['Read 15 min', 'Revenue check', 'Team standup'],
 };
 
-export function getHabits(userId: string, archetype: Archetype): Habit[] {
+export async function getHabits(userId: string, archetype: Archetype): Promise<Habit[]> {
+  const database = await getDb();
+  if (database) {
+    try {
+      const doc = await database.collection<{ userId: string; habits: Habit[] }>('habits').findOne({ userId });
+      if (doc && doc.habits) {
+        return doc.habits;
+      }
+      const defaults = DEFAULT_HABITS[archetype].map((name, i) => ({
+        id: `h${i}`,
+        name,
+        current_streak: 0,
+        last_completed_timestamp: null,
+        completion_history: [],
+      }));
+      await database.collection<{ userId: string; habits: Habit[] }>('habits').insertOne({ userId, habits: defaults });
+      return defaults;
+    } catch (err) {
+      console.error('Failed to get habits from MongoDB:', err);
+    }
+  }
+
   ensureDir();
   const p = path.join(SANDBOX_DIR, `habits_${userId}.json`);
   if (!fs.existsSync(p)) {
@@ -176,14 +299,27 @@ export function getHabits(userId: string, archetype: Archetype): Habit[] {
   return readJson<Habit[]>(p, []);
 }
 
-export function saveHabits(userId: string, habits: Habit[]): Habit[] {
+export async function saveHabits(userId: string, habits: Habit[]): Promise<Habit[]> {
+  const database = await getDb();
+  if (database) {
+    try {
+      await database.collection<{ userId: string; habits: Habit[] }>('habits').replaceOne(
+        { userId },
+        { userId, habits },
+        { upsert: true }
+      );
+      return habits;
+    } catch (err) {
+      console.error('Failed to save habits to MongoDB:', err);
+    }
+  }
   ensureDir();
   writeJson(path.join(SANDBOX_DIR, `habits_${userId}.json`), habits);
   return habits;
 }
 
-export function toggleHabit(userId: string, archetype: Archetype, habitId: string): Habit[] {
-  const habits = getHabits(userId, archetype);
+export async function toggleHabit(userId: string, archetype: Archetype, habitId: string): Promise<Habit[]> {
+  const habits = await getHabits(userId, archetype);
   const today = new Date().toISOString().split('T')[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
@@ -211,11 +347,11 @@ export function toggleHabit(userId: string, archetype: Archetype, habitId: strin
     }
   });
 
-  return saveHabits(userId, updated);
+  return await saveHabits(userId, updated);
 }
 
-export function addHabit(userId: string, archetype: Archetype, name: string): Habit[] {
-  const habits = getHabits(userId, archetype);
+export async function addHabit(userId: string, archetype: Archetype, name: string): Promise<Habit[]> {
+  const habits = await getHabits(userId, archetype);
   const newHabit: Habit = {
     id: `h${Date.now()}`,
     name,
@@ -223,12 +359,12 @@ export function addHabit(userId: string, archetype: Archetype, name: string): Ha
     last_completed_timestamp: null,
     completion_history: [],
   };
-  return saveHabits(userId, [...habits, newHabit]);
+  return await saveHabits(userId, [...habits, newHabit]);
 }
 
-export function deleteHabit(userId: string, archetype: Archetype, habitId: string): Habit[] {
-  const habits = getHabits(userId, archetype);
-  return saveHabits(userId, habits.filter(h => h.id !== habitId));
+export async function deleteHabit(userId: string, archetype: Archetype, habitId: string): Promise<Habit[]> {
+  const habits = await getHabits(userId, archetype);
+  return await saveHabits(userId, habits.filter(h => h.id !== habitId));
 }
 
 // ── Planning ──────────────────────────────────────────────────────────────────
@@ -278,7 +414,22 @@ const SEED_TASKS: Record<Archetype, Planning> = {
   },
 };
 
-export function getPlanning(userId: string, archetype: Archetype): Planning {
+export async function getPlanning(userId: string, archetype: Archetype): Promise<Planning> {
+  const database = await getDb();
+  if (database) {
+    try {
+      const doc = await database.collection<{ userId: string; planning: Planning }>('planning').findOne({ userId });
+      if (doc && doc.planning) {
+        return doc.planning;
+      }
+      const seed = SEED_TASKS[archetype];
+      await database.collection<{ userId: string; planning: Planning }>('planning').insertOne({ userId, planning: seed });
+      return seed;
+    } catch (err) {
+      console.error('Failed to get planning from MongoDB:', err);
+    }
+  }
+
   ensureDir();
   const p = path.join(SANDBOX_DIR, `planning_${userId}.json`);
   if (!fs.existsSync(p)) {
@@ -289,27 +440,41 @@ export function getPlanning(userId: string, archetype: Archetype): Planning {
   return readJson<Planning>(p, { daily: [], weekly: [], monthly: [] });
 }
 
-export function savePlanning(userId: string, planning: Planning): Planning {
+export async function savePlanning(userId: string, planning: Planning): Promise<Planning> {
+  const database = await getDb();
+  if (database) {
+    try {
+      await database.collection<{ userId: string; planning: Planning }>('planning').replaceOne(
+        { userId },
+        { userId, planning },
+        { upsert: true }
+      );
+      return planning;
+    } catch (err) {
+      console.error('Failed to save planning to MongoDB:', err);
+    }
+  }
+
   ensureDir();
   writeJson(path.join(SANDBOX_DIR, `planning_${userId}.json`), planning);
   return planning;
 }
 
-export function addTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', task: Omit<Task, 'id'>): Planning {
-  const planning = getPlanning(userId, archetype);
+export async function addTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', task: Omit<Task, 'id'>): Promise<Planning> {
+  const planning = await getPlanning(userId, archetype);
   const newTask: Task = { ...task, id: `t${Date.now()}` };
   planning[scope] = [...planning[scope], newTask];
-  return savePlanning(userId, planning);
+  return await savePlanning(userId, planning);
 }
 
-export function toggleTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', taskId: string): Planning {
-  const planning = getPlanning(userId, archetype);
+export async function toggleTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', taskId: string): Promise<Planning> {
+  const planning = await getPlanning(userId, archetype);
   planning[scope] = planning[scope].map(t => t.id === taskId ? { ...t, done: !t.done } : t);
-  return savePlanning(userId, planning);
+  return await savePlanning(userId, planning);
 }
 
-export function deleteTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', taskId: string): Planning {
-  const planning = getPlanning(userId, archetype);
+export async function deleteTask(userId: string, archetype: Archetype, scope: 'daily' | 'weekly' | 'monthly', taskId: string): Promise<Planning> {
+  const planning = await getPlanning(userId, archetype);
   planning[scope] = planning[scope].filter(t => t.id !== taskId);
-  return savePlanning(userId, planning);
+  return await savePlanning(userId, planning);
 }

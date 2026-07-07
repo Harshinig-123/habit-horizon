@@ -79,9 +79,9 @@ async function callGroq(messages: { role: string; content: string }[], systemPro
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 
-export function getProfile(req: Request, res: Response) {
+export async function getProfile(req: Request, res: Response) {
   const { userId } = req.params;
-  const profile = service.getProfile(userId);
+  const profile = await service.getProfile(userId);
   if (!profile) return res.status(404).json({ error: 'Profile not found' });
   res.json(profile);
 }
@@ -93,8 +93,8 @@ export async function signup(req: Request, res: Response) {
   }
 
   try {
-    const user = service.createUserAccount(username, password, displayName, archetype);
-    service.saveProfile(user.userId, user.displayName, user.archetype);
+    const user = await service.createUserAccount(username, password, displayName, archetype);
+    await service.saveProfile(user.userId, user.displayName, user.archetype);
     res.json({ userId: user.userId, username: user.username, userName: user.displayName, archetype: user.archetype });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Unable to create user' });
@@ -105,84 +105,84 @@ export async function login(req: Request, res: Response) {
   const { username, password } = req.body as { username: string; password: string };
   if (!username || !password) return res.status(400).json({ error: 'username and password are required' });
 
-  const user = service.verifyUserCredentials(username, password);
+  const user = await service.verifyUserCredentials(username, password);
   if (!user) return res.status(401).json({ error: 'Invalid username or password' });
 
-  service.saveProfile(user.userId, user.displayName, user.archetype);
+  await service.saveProfile(user.userId, user.displayName, user.archetype);
   res.json({ userId: user.userId, username: user.username, userName: user.displayName, archetype: user.archetype });
 }
 
-export function saveProfile(req: Request, res: Response) {
+export async function saveProfile(req: Request, res: Response) {
   const { userId, userName, archetype } = req.body as { userId: string; userName: string; archetype: Archetype };
   if (!userId || !archetype) return res.status(400).json({ error: 'userId and archetype are required' });
-  service.saveProfile(userId, userName || 'You', archetype);
-  service.updateUserProfile(userId, userName || 'You', archetype);
+  await service.saveProfile(userId, userName || 'You', archetype);
+  await service.updateUserProfile(userId, userName || 'You', archetype);
   res.json({ userId, userName: userName || 'You', archetype });
 }
 
-export function resetProfile(req: Request, res: Response) {
+export async function resetProfile(req: Request, res: Response) {
   const { userId } = req.params;
-  service.saveProfile(userId, '', 'Student');
-  service.updateUserProfile(userId, '', 'Student');
+  await service.saveProfile(userId, '', 'Student');
+  await service.updateUserProfile(userId, '', 'Student');
   res.json({ success: true });
 }
 
 // ── Habits ────────────────────────────────────────────────────────────────────
 
-export function getHabits(req: Request, res: Response) {
+export async function getHabits(req: Request, res: Response) {
   const { userId } = req.params;
   const { archetype = 'Student' } = req.query as { archetype?: Archetype };
-  res.json(service.getHabits(userId, archetype));
+  res.json(await service.getHabits(userId, archetype));
 }
 
-export function toggleHabit(req: Request, res: Response) {
+export async function toggleHabit(req: Request, res: Response) {
   const { userId, archetype, habitId } = req.body as { userId: string; archetype: Archetype; habitId: string };
   if (!userId || !habitId) return res.status(400).json({ error: 'userId and habitId are required' });
-  res.json(service.toggleHabit(userId, archetype, habitId));
+  res.json(await service.toggleHabit(userId, archetype, habitId));
 }
 
-export function addHabit(req: Request, res: Response) {
+export async function addHabit(req: Request, res: Response) {
   const { userId, archetype, name } = req.body as { userId: string; archetype: Archetype; name: string };
   if (!userId || !name) return res.status(400).json({ error: 'userId and name are required' });
-  res.json(service.addHabit(userId, archetype, name));
+  res.json(await service.addHabit(userId, archetype, name));
 }
 
-export function deleteHabit(req: Request, res: Response) {
+export async function deleteHabit(req: Request, res: Response) {
   const { userId, archetype, habitId } = req.body as { userId: string; archetype: Archetype; habitId: string };
   if (!userId || !habitId) return res.status(400).json({ error: 'userId and habitId are required' });
-  res.json(service.deleteHabit(userId, archetype, habitId));
+  res.json(await service.deleteHabit(userId, archetype, habitId));
 }
 
 // ── Planning ──────────────────────────────────────────────────────────────────
 
-export function getPlanning(req: Request, res: Response) {
+export async function getPlanning(req: Request, res: Response) {
   const { userId } = req.params;
   const { archetype = 'Student' } = req.query as { archetype?: Archetype };
-  res.json(service.getPlanning(userId, archetype));
+  res.json(await service.getPlanning(userId, archetype));
 }
 
-export function addTask(req: Request, res: Response) {
+export async function addTask(req: Request, res: Response) {
   const { userId, archetype, scope, task } = req.body as { userId: string; archetype: Archetype; scope: 'daily' | 'weekly' | 'monthly'; task: any };
   if (!userId || !scope || !task) return res.status(400).json({ error: 'userId, scope, and task are required' });
-  res.json(service.addTask(userId, archetype, scope, task));
+  res.json(await service.addTask(userId, archetype, scope, task));
 }
 
-export function toggleTask(req: Request, res: Response) {
+export async function toggleTask(req: Request, res: Response) {
   const { userId, archetype, scope, taskId } = req.body as { userId: string; archetype: Archetype; scope: 'daily' | 'weekly' | 'monthly'; taskId: string };
   if (!userId || !scope || !taskId) return res.status(400).json({ error: 'userId, scope, and taskId are required' });
-  res.json(service.toggleTask(userId, archetype, scope, taskId));
+  res.json(await service.toggleTask(userId, archetype, scope, taskId));
 }
 
-export function deleteTask(req: Request, res: Response) {
+export async function deleteTask(req: Request, res: Response) {
   const { userId, archetype, scope, taskId } = req.body as { userId: string; archetype: Archetype; scope: 'daily' | 'weekly' | 'monthly'; taskId: string };
   if (!userId || !scope || !taskId) return res.status(400).json({ error: 'userId, scope, and taskId are required' });
-  res.json(service.deleteTask(userId, archetype, scope, taskId));
+  res.json(await service.deleteTask(userId, archetype, scope, taskId));
 }
 
-export function savePlanning(req: Request, res: Response) {
+export async function savePlanning(req: Request, res: Response) {
   const { userId, archetype, planning } = req.body as { userId: string; archetype: Archetype; planning: service.Planning };
   if (!userId || !planning) return res.status(400).json({ error: 'userId and planning are required' });
-  res.json(service.savePlanning(userId, planning));
+  res.json(await service.savePlanning(userId, planning));
 }
 
 // ── AI Chat (Groq proxy with server-side PII stripping) ───────────────────────
